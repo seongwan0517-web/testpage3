@@ -172,10 +172,7 @@ body{font-family:'Pretendard',-apple-system,sans-serif;background:var(--bg);colo
     <p class="error-msg" id="loginErr">아이디 또는 비밀번호가 올바르지 않습니다.</p>
     <button class="btn btn-primary btn-full" id="loginBtn" onclick="doLogin()" style="margin-top:4px">로그인</button>
   </div>
-  <p style="text-align:center;font-size:12px;color:var(--text3);margin-top:14px;line-height:1.8">
-    관리자: <strong style="color:var(--text2)">admin</strong> / admin1234<br>
-    학생 예시: <strong style="color:var(--text2)">student1</strong> / pass1234
-  </p>
+
 </div>
 
 <!-- STUDENT -->
@@ -190,7 +187,6 @@ body{font-family:'Pretendard',-apple-system,sans-serif;background:var(--bg);colo
   <div class="tabs">
     <div class="tab active" onclick="sTab('home',this)">홈</div>
     <div class="tab" onclick="sTab('shop',this)">상점</div>
-    <div class="tab" onclick="sTab('history',this)">포인트 내역</div>
   </div>
   <div class="panel active fadein" id="s-home">
     <div class="point-banner">
@@ -206,10 +202,6 @@ body{font-family:'Pretendard',-apple-system,sans-serif;background:var(--bg);colo
     <div class="shop-filter" id="shopFilter"></div>
     <div class="scroll-area" id="shopList"></div>
   </div>
-  <div class="panel fadein" id="s-history">
-    <div class="sec-title">전체 포인트 내역</div>
-    <div class="scroll-area" id="sHistList"></div>
-  </div>
 </div>
 
 <!-- ADMIN -->
@@ -224,6 +216,7 @@ body{font-family:'Pretendard',-apple-system,sans-serif;background:var(--bg);colo
   <div class="tabs">
     <div class="tab active" onclick="aTab('orders',this)">주문 목록</div>
     <div class="tab" onclick="aTab('students',this)">학생 관리</div>
+    <div class="tab" onclick="aTab('history',this)">사용 내역</div>
     <div class="tab" onclick="aTab('shop',this)">상점 관리</div>
   </div>
 
@@ -259,6 +252,17 @@ body{font-family:'Pretendard',-apple-system,sans-serif;background:var(--bg);colo
     </div>
     <div class="sec-title">학생 목록 <span style="color:var(--text3);font-weight:400" id="studentCount"></span></div>
     <div class="scroll-area" id="studentList"></div>
+  </div>
+
+  <!-- 사용 내역 -->
+  <div class="panel fadein" id="a-history">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <div class="sec-title" style="margin-bottom:0">전체 포인트 사용 내역</div>
+      <select id="histFilter" onchange="renderAllHistory()" style="background:rgba(255,255,255,0.04);border:0.5px solid var(--border2);border-radius:var(--radius-sm);padding:6px 10px;font-size:12px;color:var(--text);font-family:inherit;outline:none">
+        <option value="all">전체 학생</option>
+      </select>
+    </div>
+    <div class="scroll-area" id="allHistList"></div>
   </div>
 
   <!-- 상점 관리 -->
@@ -514,7 +518,6 @@ function sTab(id, el) {
   document.querySelectorAll('#studentWrap .panel').forEach(p => p.classList.remove('active'));
   document.getElementById('s-'+id).classList.add('active');
   if (id==='shop') renderShop();
-  if (id==='history') renderHistory();
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -771,7 +774,48 @@ function aTab(id, el) {
   document.getElementById('a-'+id).classList.add('active');
   if (id==='orders') renderOrders();
   if (id==='students') renderStudentList();
+  if (id==='history') renderAllHistory();
   if (id==='shop') { renderAdminShop(); loadJsonBinConfigUI(); }
+}
+
+// ─── 전체 사용 내역 ───
+function renderAllHistory() {
+  // 필터 셀렉트 학생 목록 갱신
+  const sel = document.getElementById('histFilter');
+  const cur = sel.value;
+  sel.innerHTML = '<option value="all">전체 학생</option>' +
+    DATA.students.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
+  sel.value = cur;
+
+  const filterSid = sel.value;
+
+  // 모든 학생 내역 합치기
+  let all = [];
+  DATA.students.forEach(s => {
+    (s.history || []).forEach(h => {
+      all.push({ ...h, studentName: s.name, studentId: s.id });
+    });
+  });
+
+  // 필터 적용
+  if (filterSid !== 'all') all = all.filter(h => h.studentId === filterSid);
+
+  // 날짜 최신순 정렬
+  all.sort((a, b) => (b.date > a.date ? 1 : b.date < a.date ? -1 : 0));
+
+  const el = document.getElementById('allHistList');
+  if (!all.length) { el.innerHTML = '<p class="empty">내역이 없습니다.</p>'; return; }
+
+  el.innerHTML = all.map(h => {
+    const plus = h.type === 'earn';
+    return `<div class="hist-item">
+      <div>
+        <div class="hist-label">${h.studentName} — ${h.label}</div>
+        <div class="hist-date">${h.date}</div>
+      </div>
+      <div class="hist-pts ${plus?'plus':'minus'}">${plus?'+':''}${h.points.toLocaleString()} P</div>
+    </div>`;
+  }).join('');
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -792,16 +836,48 @@ async function saveJsonBinConfig() {
   localStorage.setItem('jb_key', key);
   localStorage.setItem('jb_bin', bin);
   toast('🔗 테스트 중...');
-  const remote = await dbLoad();
-  if (remote) {
-    DATA = remote;
-    localStorage.setItem(STORE_KEY, JSON.stringify(DATA));
-    renderAdmin();
-    toast('✅ JSONBin 연동 성공! 데이터를 불러왔습니다.');
-  } else {
-    // 빈 Bin이면 현재 데이터를 업로드
-    await dbSave(DATA);
-    toast('✅ 연동 완료! 현재 데이터를 JSONBin에 저장했습니다.');
+
+  try {
+    const url = `${API}/${bin}/latest`;
+    console.log('GET:', url);
+    const r = await fetch(url, {
+      headers: { 'X-Master-Key': key }
+    });
+    console.log('응답 상태:', r.status);
+    const text = await r.text();
+    console.log('응답 내용:', text);
+
+    if (r.ok) {
+      const j = JSON.parse(text);
+      const record = j.record;
+      // 실제 앱 데이터인지 확인 (students 배열 있으면 불러오기)
+      if (record && record.students) {
+        DATA = record;
+        localStorage.setItem(STORE_KEY, JSON.stringify(DATA));
+        renderAdmin();
+        toast('✅ 연동 성공! 기존 데이터를 불러왔습니다.');
+      } else {
+        // 빈 Bin이면 현재 데이터 업로드
+        const pr = await fetch(`${API}/${bin}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', 'X-Master-Key': key },
+          body: JSON.stringify(DATA)
+        });
+        console.log('PUT 응답:', pr.status);
+        if (pr.ok) {
+          toast('✅ 연동 완료! 데이터를 JSONBin에 저장했습니다.');
+        } else {
+          const pt = await pr.text();
+          console.error('PUT 실패:', pt);
+          toast('❌ 저장 실패: ' + pr.status + ' — 콘솔 확인');
+        }
+      }
+    } else {
+      toast('❌ 연동 실패 (' + r.status + ') — F12 콘솔 확인');
+    }
+  } catch (e) {
+    console.error('오류:', e);
+    toast('❌ 오류: ' + e.message);
   }
 }
 
